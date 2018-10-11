@@ -1,0 +1,40 @@
+---
+- name: setup prometheus node exporter
+  hosts: all
+  tasks:
+  - name: create target directory
+    file: path=/home/prometheus/node_exporter state=directory mode=0755
+  - name: copy install bundle
+    copy: "src=files/prometheus/node_exporter/v0.16.0/node_exporter dest=/home/prometheus/node_exporter/ mode=755"
+  - name: Link node_exporter 
+    file: "src=/home/prometheus/node_exporter/node_exporter dest=/usr/bin/node_exporter state=link" 
+    
+  - name: Install as service in RHEL7
+    block:
+    - name: Install service RHEL7
+      copy: "src=files/prometheus/node_exporter/service/node_exporter.service dest=/etc/systemd/system/ mode=755"
+    - name: config systemd RHEL7
+      systemd: "name=node_exporter state=restarted daemon_reload=yes enabled=yes"
+    - name: setup firewall RHEL7
+      firewalld: "port=9100/tcp permanent=true state=enabled immediate=yes zone=internal"
+    when: "ansible_os_family == 'RedHat' and ansible_distribution_major_version == '7'"
+
+  - name: Install as service in RHEL6
+    block:
+    - name: copy service files RHEL6
+      copy: "src=files/prometheus/node_exporter/service/init.d_node_exporter dest=/etc/init.d/node_exporter mode=755"
+    - name: Copy service file RHEL6
+      copy: "src=files/prometheus/node_exporter/service/default_node_exporter dest=/etc/default/node_exporter mode=755"
+    - name: configure server in RHEL6
+      service: "name=node_exporter state=started enabled=yes"
+    - name: configure iptables RHEL6
+      iptables: "chain=INPUT protocol=tcp match=tcp destination_port=9100 jump=ACCEPT" 
+      become: yes
+      register: port_added
+    - name: save iptables RHEL6
+      command: service iptables save
+      become: true
+      when: port_added is changed
+    - name: restart iptables RHEL6
+      service: "name=iptables state=restarted"
+    when: "ansible_os_family == 'RedHat' and ansible_distribution_major_version == '6'"
